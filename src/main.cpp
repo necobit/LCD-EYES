@@ -18,14 +18,16 @@ constexpr int PIN_BLK = 44; // Backlight
 constexpr int PIN_CS = 43;  // Chip Select
 
 // 目の設定
-constexpr int EYE_RADIUS = 30;          // 目の半径
-constexpr int EYE_SPACING = 80;         // 目の間隔
-constexpr int PUPIL_RADIUS = 15;        // 瞳の半径
-constexpr int DISPLAY_CENTER_X = 120;   // ディスプレイの中心X
-constexpr int DISPLAY_CENTER_Y = 160;   // ディスプレイの中心Y
-constexpr int MOVE_INTERVAL_MIN = 2000; // 目の動きの最小間隔（ミリ秒）
-constexpr int MOVE_INTERVAL_MAX = 5000; // 目の動きの最大間隔（ミリ秒）
-constexpr int MOVE_DURATION = 200;      // 目の動きの持続時間（ミリ秒）
+constexpr int EYE_RADIUS = 50;                       // 目の半径
+constexpr int EYE_SPACING = 210;                     // 目の間隔
+constexpr int PUPIL_RADIUS = 25;                     // 瞳の半径
+constexpr int DISPLAY_WIDTH = 320;                   // ディスプレイの幅
+constexpr int DISPLAY_HEIGHT = 240;                  // ディスプレイの高さ
+constexpr int DISPLAY_CENTER_X = DISPLAY_WIDTH / 2;  // ディスプレイの中心X
+constexpr int DISPLAY_CENTER_Y = DISPLAY_HEIGHT / 2; // ディスプレイの中心Y
+constexpr int MOVE_INTERVAL_MIN = 2000;              // 目の動きの最小間隔（ミリ秒）
+constexpr int MOVE_INTERVAL_MAX = 5000;              // 目の動きの最大間隔（ミリ秒）
+constexpr int MOVE_DURATION = 200;                   // 目の動きの持続時間（ミリ秒）
 
 // 目の位置情報
 struct EyePosition
