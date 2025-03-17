@@ -55,22 +55,23 @@ struct EyePosition
 // 目の状態
 struct EyeState
 {
-  EyePosition leftEye;
-  EyePosition rightEye;
-  EyePosition prevLeftEye;  // 前回の左目の位置
-  EyePosition prevRightEye; // 前回の右目の位置
-  unsigned long nextMoveTime;
-  bool isMoving;
-  unsigned long moveStartTime;
-  EyePosition targetLeft;
-  EyePosition targetRight;
-  EyePosition originalLeft;
-  EyePosition originalRight;
+  EyePosition leftEye;          // 現在の左目の位置
+  EyePosition rightEye;         // 現在の右目の位置
+  EyePosition prevLeftEye;      // 前回の左目の位置
+  EyePosition prevRightEye;     // 前回の右目の位置
+  unsigned long nextMoveTime;   // 次の動きの時間
+  bool isMoving;                // 動き中フラグ
+  unsigned long moveStartTime;  // 動きの開始時間
+  EyePosition targetLeft;       // 目標の左目位置
+  EyePosition targetRight;      // 目標の右目位置
+  EyePosition originalLeft;     // 動き開始時の左目位置
+  EyePosition originalRight;    // 動き開始時の右目位置
   bool initialized;             // 初期化済みフラグ
   EyeMode mode;                 // 目のモード
   unsigned long nextBlinkTime;  // 次の瞬きの時間
   bool isBlinking;              // 瞬き中フラグ
   unsigned long blinkStartTime; // 瞬きの開始時間
+  bool lookingAtCenter;         // センターを見ているかどうか
 };
 
 // LovyanGFX: https://github.com/lovyan03/LovyanGFX
@@ -324,25 +325,43 @@ void updateEyePosition()
     eyeState.originalLeft = eyeState.leftEye;
     eyeState.originalRight = eyeState.rightEye;
 
-    // ランダムな目標位置を設定（瞳の動く範囲を制限）
-    int maxMove;
-    if (eyeState.mode == ROUND_EYE)
+    // センターを見ているかどうかで目標位置を決定
+    if (eyeState.lookingAtCenter)
     {
-      maxMove = EYE_RADIUS - PUPIL_RADIUS;
+      // センターを見ている場合は、ランダムな位置に移動
+      int maxMove;
+      if (eyeState.mode == ROUND_EYE)
+      {
+        maxMove = EYE_RADIUS - PUPIL_RADIUS;
+      }
+      else
+      {
+        // 四角い目の場合は、画面からはみ出さないように移動範囲を制限
+        maxMove = SQUARE_EYE_SIZE / 4; // 移動範囲を小さくする
+      }
+
+      eyeState.targetLeft.x = random(-maxMove, maxMove + 1);
+      eyeState.targetLeft.y = random(-maxMove, maxMove + 1);
+      eyeState.targetRight.x = eyeState.targetLeft.x; // 両目を同じ方向に動かす
+      eyeState.targetRight.y = eyeState.targetLeft.y;
+
+      // 次はセンターに戻る
+      eyeState.lookingAtCenter = false;
     }
     else
     {
-      // 四角い目の場合は、画面からはみ出さないように移動範囲を制限
-      maxMove = SQUARE_EYE_SIZE / 4; // 移動範囲を小さくする
+      // センターを見ていない場合は、センターに戻る
+      eyeState.targetLeft.x = 0;
+      eyeState.targetLeft.y = 0;
+      eyeState.targetRight.x = 0;
+      eyeState.targetRight.y = 0;
+
+      // 次はランダムな位置に移動
+      eyeState.lookingAtCenter = true;
     }
 
-    eyeState.targetLeft.x = random(-maxMove, maxMove + 1);
-    eyeState.targetLeft.y = random(-maxMove, maxMove + 1);
-    eyeState.targetRight.x = eyeState.targetLeft.x; // 両目を同じ方向に動かす
-    eyeState.targetRight.y = eyeState.targetLeft.y;
-
-    // 次の動きの時間を設定
-    eyeState.nextMoveTime = currentTime + MOVE_DURATION + random(MOVE_INTERVAL_MIN, MOVE_INTERVAL_MAX + 1);
+    // 次の動きの時間を設定（3秒後）
+    eyeState.nextMoveTime = currentTime + MOVE_DURATION + 3000;
   }
 
   // 動きの処理
@@ -397,6 +416,7 @@ void setup()
   eyeState.mode = ROUND_EYE; // 初期モードは丸い目
   eyeState.isBlinking = false;
   eyeState.nextBlinkTime = millis() + BLINK_INTERVAL;
+  eyeState.lookingAtCenter = true; // 初期状態はセンターを見ている
 
   // 初期描画
   drawInitialEyes();
