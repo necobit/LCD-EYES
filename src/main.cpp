@@ -21,6 +21,8 @@ constexpr int PIN_CS = 43;  // Chip Select
 constexpr int EYE_RADIUS = 50;                       // 目の半径
 constexpr int EYE_SPACING = 210;                     // 目の間隔
 constexpr int PUPIL_RADIUS = 25;                     // 瞳の半径
+constexpr int SQUARE_EYE_SIZE = 90;                  // 四角い目のサイズ
+constexpr int SQUARE_EYE_RADIUS = 15;                // 四角い目の角の丸み
 constexpr int DISPLAY_WIDTH = 320;                   // ディスプレイの幅
 constexpr int DISPLAY_HEIGHT = 240;                  // ディスプレイの高さ
 constexpr int DISPLAY_CENTER_X = DISPLAY_WIDTH / 2;  // ディスプレイの中心X
@@ -28,6 +30,20 @@ constexpr int DISPLAY_CENTER_Y = DISPLAY_HEIGHT / 2; // ディスプレイの中
 constexpr int MOVE_INTERVAL_MIN = 2000;              // 目の動きの最小間隔（ミリ秒）
 constexpr int MOVE_INTERVAL_MAX = 5000;              // 目の動きの最大間隔（ミリ秒）
 constexpr int MOVE_DURATION = 200;                   // 目の動きの持続時間（ミリ秒）
+constexpr int BLINK_INTERVAL = 3000;                 // 瞬きの間隔（ミリ秒）
+constexpr int BLINK_DURATION = 200;                  // 瞬きの持続時間（ミリ秒）
+
+// 色の設定
+// ライブラリの定義済み色定数を使用
+constexpr uint32_t SQUARE_EYE_COLOR = TFT_WHITE; // 白色
+
+// 目のモード
+enum EyeMode
+{
+  ROUND_EYE = 0,  // 丸い目
+  SQUARE_EYE = 1, // 四角い目
+  EYE_MODE_COUNT  // モードの数
+};
 
 // 目の位置情報
 struct EyePosition
@@ -50,7 +66,11 @@ struct EyeState
   EyePosition targetRight;
   EyePosition originalLeft;
   EyePosition originalRight;
-  bool initialized; // 初期化済みフラグ
+  bool initialized;             // 初期化済みフラグ
+  EyeMode mode;                 // 目のモード
+  unsigned long nextBlinkTime;  // 次の瞬きの時間
+  bool isBlinking;              // 瞬き中フラグ
+  unsigned long blinkStartTime; // 瞬きの開始時間
 };
 
 // LovyanGFX: https://github.com/lovyan03/LovyanGFX
@@ -114,6 +134,8 @@ EyeState eyeState;                 // 目の状態を管理する変数
 // 関数プロトタイプ宣言
 void drawEyes(EyePosition leftPupil, EyePosition rightPupil);
 void updateEyePosition();
+void drawRoundEyes(EyePosition leftPupil, EyePosition rightPupil);
+void drawSquareEyes(EyePosition leftPupil, EyePosition rightPupil);
 
 // 初期描画
 void drawInitialEyes()
@@ -129,24 +151,19 @@ void drawInitialEyes()
 // 目を描画する関数（スプライト使用）
 void drawEyes(EyePosition leftPupil, EyePosition rightPupil)
 {
-  // 背景を黒で塗りつぶし
-  eyesSprite.fillScreen(TFT_BLACK);
-
-  // 左右の目の白目部分を描画
-  eyesSprite.fillCircle(DISPLAY_CENTER_X - EYE_SPACING / 2, DISPLAY_CENTER_Y, EYE_RADIUS, TFT_WHITE);
-  eyesSprite.fillCircle(DISPLAY_CENTER_X + EYE_SPACING / 2, DISPLAY_CENTER_Y, EYE_RADIUS, TFT_WHITE);
-
-  // 左右の瞳を描画
-  eyesSprite.fillCircle(DISPLAY_CENTER_X - EYE_SPACING / 2 + leftPupil.x,
-                        DISPLAY_CENTER_Y + leftPupil.y,
-                        PUPIL_RADIUS, TFT_BLACK);
-
-  eyesSprite.fillCircle(DISPLAY_CENTER_X + EYE_SPACING / 2 + rightPupil.x,
-                        DISPLAY_CENTER_Y + rightPupil.y,
-                        PUPIL_RADIUS, TFT_BLACK);
-
-  // スプライトを画面に転送
-  eyesSprite.pushSprite(&ExtDisplay, 0, 0);
+  // 目のモードに応じて描画関数を呼び出す
+  switch (eyeState.mode)
+  {
+  case ROUND_EYE:
+    drawRoundEyes(leftPupil, rightPupil);
+    break;
+  case SQUARE_EYE:
+    drawSquareEyes(leftPupil, rightPupil);
+    break;
+  default:
+    drawRoundEyes(leftPupil, rightPupil);
+    break;
+  }
 
   // 現在の位置を前回の位置として保存
   eyeState.prevLeftEye = leftPupil;
@@ -154,10 +171,148 @@ void drawEyes(EyePosition leftPupil, EyePosition rightPupil)
   eyeState.initialized = true;
 }
 
+// 丸い目を描画する関数
+void drawRoundEyes(EyePosition leftPupil, EyePosition rightPupil)
+{
+  // 背景を黒で塗りつぶし
+  eyesSprite.fillScreen(TFT_BLACK);
+
+  // 瞬き中かどうかを確認
+  unsigned long currentTime = millis();
+  bool drawBlink = eyeState.isBlinking && (currentTime - eyeState.blinkStartTime < BLINK_DURATION);
+
+  if (!drawBlink)
+  {
+    // 左右の目の白目部分を描画
+    eyesSprite.fillCircle(DISPLAY_CENTER_X - EYE_SPACING / 2, DISPLAY_CENTER_Y, EYE_RADIUS, TFT_WHITE);
+    eyesSprite.fillCircle(DISPLAY_CENTER_X + EYE_SPACING / 2, DISPLAY_CENTER_Y, EYE_RADIUS, TFT_WHITE);
+
+    // 左右の瞳を描画
+    eyesSprite.fillCircle(DISPLAY_CENTER_X - EYE_SPACING / 2 + leftPupil.x,
+                          DISPLAY_CENTER_Y + leftPupil.y,
+                          PUPIL_RADIUS, TFT_BLACK);
+
+    eyesSprite.fillCircle(DISPLAY_CENTER_X + EYE_SPACING / 2 + rightPupil.x,
+                          DISPLAY_CENTER_Y + rightPupil.y,
+                          PUPIL_RADIUS, TFT_BLACK);
+  }
+  else
+  {
+    // 瞬き中は細い楕円を描画
+    // 左目の瞬き
+    for (int i = -2; i <= 2; i++)
+    {
+      eyesSprite.drawFastHLine(
+          DISPLAY_CENTER_X - EYE_SPACING / 2 - EYE_RADIUS,
+          DISPLAY_CENTER_Y + i,
+          EYE_RADIUS * 2,
+          TFT_WHITE);
+    }
+
+    // 右目の瞬き
+    for (int i = -2; i <= 2; i++)
+    {
+      eyesSprite.drawFastHLine(
+          DISPLAY_CENTER_X + EYE_SPACING / 2 - EYE_RADIUS,
+          DISPLAY_CENTER_Y + i,
+          EYE_RADIUS * 2,
+          TFT_WHITE);
+    }
+  }
+
+  // スプライトを画面に転送
+  eyesSprite.pushSprite(&ExtDisplay, 0, 0);
+}
+
+// 四角い目を描画する関数
+void drawSquareEyes(EyePosition leftPupil, EyePosition rightPupil)
+{
+  // 背景を黒で塗りつぶし
+  eyesSprite.fillScreen(TFT_BLACK);
+
+  // 瞬き中かどうかを確認
+  unsigned long currentTime = millis();
+  bool drawBlink = eyeState.isBlinking && (currentTime - eyeState.blinkStartTime < BLINK_DURATION);
+
+  if (!drawBlink)
+  {
+    // 左右の目の四角い白目部分を描画（角が丸い四角形）
+    // 画面からはみ出さないように位置を調整
+    int leftX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + leftPupil.x;
+    int leftY = DISPLAY_CENTER_Y - SQUARE_EYE_SIZE / 2 + leftPupil.y;
+    int rightX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + rightPupil.x;
+    int rightY = DISPLAY_CENTER_Y - SQUARE_EYE_SIZE / 2 + rightPupil.y;
+
+    // 画面からはみ出さないように調整
+    leftX = constrain(leftX, 0, DISPLAY_WIDTH - SQUARE_EYE_SIZE);
+    leftY = constrain(leftY, 0, DISPLAY_HEIGHT - SQUARE_EYE_SIZE);
+    rightX = constrain(rightX, 0, DISPLAY_WIDTH - SQUARE_EYE_SIZE);
+    rightY = constrain(rightY, 0, DISPLAY_HEIGHT - SQUARE_EYE_SIZE);
+
+    eyesSprite.fillRoundRect(
+        leftX, leftY,
+        SQUARE_EYE_SIZE, SQUARE_EYE_SIZE, SQUARE_EYE_RADIUS, 0xAFFF);
+
+    eyesSprite.fillRoundRect(
+        rightX, rightY,
+        SQUARE_EYE_SIZE, SQUARE_EYE_SIZE, SQUARE_EYE_RADIUS, 0xAFFF);
+  }
+  else
+  {
+    // 瞬き中は線を描画
+    int lineY = DISPLAY_CENTER_Y + leftPupil.y;
+    // 画面からはみ出さないように調整
+    lineY = constrain(lineY, 0, DISPLAY_HEIGHT - 1);
+
+    int leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + leftPupil.x;
+    int leftEndX = DISPLAY_CENTER_X - EYE_SPACING / 2 + SQUARE_EYE_SIZE / 2 + leftPupil.x;
+    int rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + rightPupil.x;
+    int rightEndX = DISPLAY_CENTER_X + EYE_SPACING / 2 + SQUARE_EYE_SIZE / 2 + rightPupil.x;
+
+    // 画面からはみ出さないように調整
+    leftStartX = constrain(leftStartX, 0, DISPLAY_WIDTH - 1);
+    leftEndX = constrain(leftEndX, 0, DISPLAY_WIDTH - 1);
+    rightStartX = constrain(rightStartX, 0, DISPLAY_WIDTH - 1);
+    rightEndX = constrain(rightEndX, 0, DISPLAY_WIDTH - 1);
+
+    eyesSprite.drawLine(leftStartX, lineY, leftEndX, lineY, SQUARE_EYE_COLOR);
+    eyesSprite.drawLine(rightStartX, lineY, rightEndX, lineY, SQUARE_EYE_COLOR);
+  }
+
+  // スプライトを画面に転送
+  eyesSprite.pushSprite(&ExtDisplay, 0, 0);
+}
+
 // 目の位置を更新する関数
 void updateEyePosition()
 {
   unsigned long currentTime = millis();
+
+  // ボタン押下で目のモード切替
+  if (M5.BtnA.wasPressed())
+  {
+    eyeState.mode = (EyeMode)((eyeState.mode + 1) % EYE_MODE_COUNT);
+    // モード変更時に目を再描画
+    drawEyes(eyeState.leftEye, eyeState.rightEye);
+  }
+
+  // 瞬き処理（両方のモードで共通）
+  // 瞬きの開始判定
+  if (!eyeState.isBlinking && currentTime >= eyeState.nextBlinkTime)
+  {
+    eyeState.isBlinking = true;
+    eyeState.blinkStartTime = currentTime;
+    // 瞬きの持続時間は固定で0.2秒、次の瞬きは3秒後
+    eyeState.nextBlinkTime = currentTime + BLINK_DURATION + BLINK_INTERVAL;
+  }
+
+  // 瞬きの終了判定（0.2秒で確実に終了）
+  if (eyeState.isBlinking && (currentTime - eyeState.blinkStartTime >= BLINK_DURATION))
+  {
+    eyeState.isBlinking = false;
+    // 瞬きが終わったら強制的に再描画して元の目に戻す
+    drawEyes(eyeState.leftEye, eyeState.rightEye);
+  }
 
   // 動きの開始判定
   if (!eyeState.isMoving && currentTime >= eyeState.nextMoveTime)
@@ -170,7 +325,17 @@ void updateEyePosition()
     eyeState.originalRight = eyeState.rightEye;
 
     // ランダムな目標位置を設定（瞳の動く範囲を制限）
-    int maxMove = EYE_RADIUS - PUPIL_RADIUS;
+    int maxMove;
+    if (eyeState.mode == ROUND_EYE)
+    {
+      maxMove = EYE_RADIUS - PUPIL_RADIUS;
+    }
+    else
+    {
+      // 四角い目の場合は、画面からはみ出さないように移動範囲を制限
+      maxMove = SQUARE_EYE_SIZE / 4; // 移動範囲を小さくする
+    }
+
     eyeState.targetLeft.x = random(-maxMove, maxMove + 1);
     eyeState.targetLeft.y = random(-maxMove, maxMove + 1);
     eyeState.targetRight.x = eyeState.targetLeft.x; // 両目を同じ方向に動かす
@@ -207,6 +372,11 @@ void updateEyePosition()
     // 目を更新
     drawEyes(eyeState.leftEye, eyeState.rightEye);
   }
+  else if (eyeState.isBlinking)
+  {
+    // 瞬き中は常に再描画（両方のモードで共通）
+    drawEyes(eyeState.leftEye, eyeState.rightEye);
+  }
 }
 
 void setup()
@@ -224,6 +394,9 @@ void setup()
   eyeState.isMoving = false;
   eyeState.initialized = false;
   eyeState.nextMoveTime = millis() + random(MOVE_INTERVAL_MIN, MOVE_INTERVAL_MAX + 1);
+  eyeState.mode = ROUND_EYE; // 初期モードは丸い目
+  eyeState.isBlinking = false;
+  eyeState.nextBlinkTime = millis() + BLINK_INTERVAL;
 
   // 初期描画
   drawInitialEyes();
