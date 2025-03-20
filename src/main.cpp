@@ -21,8 +21,9 @@ constexpr int PIN_CS = 43;  // Chip Select
 constexpr int EYE_RADIUS = 50;                       // 目の半径
 constexpr int EYE_SPACING = 210;                     // 目の間隔
 constexpr int PUPIL_RADIUS = 25;                     // 瞳の半径
-constexpr int SQUARE_EYE_SIZE = 90;                  // 四角い目のサイズ
-constexpr int SQUARE_EYE_RADIUS = 15;                // 四角い目の角の丸み
+constexpr int SQUARE_EYE_WIDTH = 60;                 // 四角い目の幅
+constexpr int SQUARE_EYE_HEIGHT = 120;               // 四角い目の高さ
+constexpr int SQUARE_EYE_RADIUS = 5;                 // 四角い目の角の丸み
 constexpr int DISPLAY_WIDTH = 320;                   // ディスプレイの幅
 constexpr int DISPLAY_HEIGHT = 240;                  // ディスプレイの高さ
 constexpr int DISPLAY_CENTER_X = DISPLAY_WIDTH / 2;  // ディスプレイの中心X
@@ -239,24 +240,24 @@ void drawSquareEyes(EyePosition leftPupil, EyePosition rightPupil)
   {
     // 左右の目の四角い白目部分を描画（角が丸い四角形）
     // 画面からはみ出さないように位置を調整
-    int leftX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + leftPupil.x;
-    int leftY = DISPLAY_CENTER_Y - SQUARE_EYE_SIZE / 2 + leftPupil.y;
-    int rightX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + rightPupil.x;
-    int rightY = DISPLAY_CENTER_Y - SQUARE_EYE_SIZE / 2 + rightPupil.y;
+    int leftX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
+    int leftY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + leftPupil.y;
+    int rightX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
+    int rightY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + rightPupil.y;
 
     // 画面からはみ出さないように調整
-    leftX = constrain(leftX, 0, DISPLAY_WIDTH - SQUARE_EYE_SIZE);
-    leftY = constrain(leftY, 0, DISPLAY_HEIGHT - SQUARE_EYE_SIZE);
-    rightX = constrain(rightX, 0, DISPLAY_WIDTH - SQUARE_EYE_SIZE);
-    rightY = constrain(rightY, 0, DISPLAY_HEIGHT - SQUARE_EYE_SIZE);
+    leftX = constrain(leftX, 0, DISPLAY_WIDTH - SQUARE_EYE_WIDTH);
+    leftY = constrain(leftY, 0, DISPLAY_HEIGHT - SQUARE_EYE_HEIGHT);
+    rightX = constrain(rightX, 0, DISPLAY_WIDTH - SQUARE_EYE_WIDTH);
+    rightY = constrain(rightY, 0, DISPLAY_HEIGHT - SQUARE_EYE_HEIGHT);
 
     eyesSprite.fillRoundRect(
         leftX, leftY,
-        SQUARE_EYE_SIZE, SQUARE_EYE_SIZE, SQUARE_EYE_RADIUS, 0xAFFF);
+        SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, 0xAFFF);
 
     eyesSprite.fillRoundRect(
         rightX, rightY,
-        SQUARE_EYE_SIZE, SQUARE_EYE_SIZE, SQUARE_EYE_RADIUS, 0xAFFF);
+        SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, 0xAFFF);
   }
   else
   {
@@ -265,10 +266,10 @@ void drawSquareEyes(EyePosition leftPupil, EyePosition rightPupil)
     // 画面からはみ出さないように調整
     lineY = constrain(lineY, 0, DISPLAY_HEIGHT - 1);
 
-    int leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + leftPupil.x;
-    int leftEndX = DISPLAY_CENTER_X - EYE_SPACING / 2 + SQUARE_EYE_SIZE / 2 + leftPupil.x;
-    int rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_SIZE / 2 + rightPupil.x;
-    int rightEndX = DISPLAY_CENTER_X + EYE_SPACING / 2 + SQUARE_EYE_SIZE / 2 + rightPupil.x;
+    int leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
+    int leftEndX = DISPLAY_CENTER_X - EYE_SPACING / 2 + SQUARE_EYE_WIDTH / 2 + leftPupil.x;
+    int rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
+    int rightEndX = DISPLAY_CENTER_X + EYE_SPACING / 2 + SQUARE_EYE_WIDTH / 2 + rightPupil.x;
 
     // 画面からはみ出さないように調整
     leftStartX = constrain(leftStartX, 0, DISPLAY_WIDTH - 1);
@@ -337,7 +338,7 @@ void updateEyePosition()
       else
       {
         // 四角い目の場合は、画面からはみ出さないように移動範囲を制限
-        maxMove = SQUARE_EYE_SIZE / 4; // 移動範囲を小さくする
+        maxMove = SQUARE_EYE_WIDTH / 4; // 移動範囲を小さくする
       }
 
       eyeState.targetLeft.x = random(-maxMove, maxMove + 1);
@@ -413,7 +414,7 @@ void setup()
   eyeState.isMoving = false;
   eyeState.initialized = false;
   eyeState.nextMoveTime = millis() + random(MOVE_INTERVAL_MIN, MOVE_INTERVAL_MAX + 1);
-  eyeState.mode = ROUND_EYE; // 初期モードは丸い目
+  eyeState.mode = SQUARE_EYE; // 初期モードは丸い目
   eyeState.isBlinking = false;
   eyeState.nextBlinkTime = millis() + BLINK_INTERVAL;
   eyeState.lookingAtCenter = true; // 初期状態はセンターを見ている
