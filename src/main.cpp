@@ -10,12 +10,15 @@
 // 使用したピン
 // 3.3V -> VCC
 // G    -> GND
-constexpr int PIN_SCL = 1;  // SCLK(SPI Clock) (SCL)
-constexpr int PIN_SDA = 3;  // MOSI (SDA)
-constexpr int PIN_RST = 5;  // Reset
-constexpr int PIN_DC = 7;   // Data/Command
-constexpr int PIN_BLK = 44; // Backlight
-constexpr int PIN_CS = 43;  // Chip Select
+constexpr int PIN_SCL = 1;      // SCLK(SPI Clock) (SCL)
+constexpr int PIN_SDA = 3;      // MOSI (SDA)
+constexpr int PIN_RST = 5;      // Reset
+constexpr int PIN_DC = 7;       // Data/Command
+constexpr int PIN_BLK = 44;     // Backlight
+constexpr int PIN_CS = 43;      // Chip Select
+constexpr int PIN_WINKER_R = 8; // ウィンカー右
+constexpr int PIN_WINKER_L = 9; // ウィンカー左
+constexpr int PIN_TOUCH1 = 10;  // タッチ1
 
 // 目の設定
 constexpr int EYE_RADIUS = 50;                       // 目の半径
