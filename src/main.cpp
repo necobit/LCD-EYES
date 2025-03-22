@@ -45,12 +45,37 @@ constexpr int BLINK_DURATION = 200;                  // 瞬きの持続時間（
 // ライブラリの定義済み色定数を使用
 constexpr uint32_t SQUARE_EYE_COLOR = TFT_WHITE; // 白色
 
+// モード切替の定数
+constexpr int NORMAL_EYE_DURATION = 9000;    // 通常の目モードの持続時間（ミリ秒）
+constexpr int SLOT_MACHINE_DURATION = 10000; // スロットマシンモードの持続時間（ミリ秒）
+constexpr int SLEEP_MODE_DURATION = 10000;   // おやすみモードの持続時間（ミリ秒）
+
 // 目のモード
 enum EyeMode
 {
-  ROUND_EYE = 0,  // 丸い目
-  SQUARE_EYE = 1, // 四角い目
-  EYE_MODE_COUNT  // モードの数
+  NORMAL_EYE = 0,   // 通常の目（四角い目）
+  SLOT_MACHINE = 1, // スロットマシンモード
+  SLEEP_MODE = 2,   // おやすみモード
+  EYE_MODE_COUNT    // モードの数
+};
+
+// スロットマシンの状態
+enum SlotState
+{
+  SLOT_START,    // 開始状態
+  SLOT_SPINNING, // 回転中
+  SLOT_RESULT,   // 結果表示中
+  SLOT_END       // 終了状態
+};
+
+// おやすみモードの状態
+enum SleepState
+{
+  SLEEP_START,   // 開始状態
+  SLEEP_NORMAL,  // 通常の目を表示
+  SLEEP_CLOSING, // 目を閉じている途中
+  SLEEP_DIMMING, // 画面を暗くしている途中
+  SLEEP_COMPLETE // 完全に暗くなった状態
 };
 
 // 目の位置情報
@@ -80,6 +105,13 @@ struct EyeState
   bool isBlinking;              // 瞬き中フラグ
   unsigned long blinkStartTime; // 瞬きの開始時間
   bool lookingAtCenter;         // センターを見ているかどうか
+  unsigned long modeStartTime;  // モード開始時間
+  SlotState slotState;          // スロットマシンの状態
+  unsigned long slotStartTime;  // スロット開始時間
+  int slotNumber;               // スロットの結果の数字
+  SleepState sleepState;        // おやすみモードの状態
+  unsigned long sleepStartTime; // おやすみモード開始時間
+  int brightness;               // 画面の明るさ（おやすみモード用）
 };
 
 // ウィンカー制御用の変数
@@ -148,9 +180,11 @@ EyeState eyeState;                 // 目の状態を管理する変数
 // 関数プロトタイプ宣言
 void drawEyes(EyePosition leftPupil, EyePosition rightPupil);
 void updateEyePosition();
-void drawRoundEyes(EyePosition leftPupil, EyePosition rightPupil);
-void drawSquareEyes(EyePosition leftPupil, EyePosition rightPupil);
+void drawNormalEyes(EyePosition leftPupil, EyePosition rightPupil);
+void drawSlotMachine();
+void drawSleepMode();
 void updateWinkers(); // ウィンカー制御用の関数
+void updateMode();    // モード更新用の関数
 
 // 初期描画
 void drawInitialEyes()
@@ -169,14 +203,17 @@ void drawEyes(EyePosition leftPupil, EyePosition rightPupil)
   // 目のモードに応じて描画関数を呼び出す
   switch (eyeState.mode)
   {
-  case ROUND_EYE:
-    drawRoundEyes(leftPupil, rightPupil);
+  case NORMAL_EYE:
+    drawNormalEyes(leftPupil, rightPupil);
     break;
-  case SQUARE_EYE:
-    drawSquareEyes(leftPupil, rightPupil);
+  case SLOT_MACHINE:
+    drawSlotMachine();
+    break;
+  case SLEEP_MODE:
+    drawSleepMode();
     break;
   default:
-    drawRoundEyes(leftPupil, rightPupil);
+    drawNormalEyes(leftPupil, rightPupil);
     break;
   }
 
@@ -186,8 +223,8 @@ void drawEyes(EyePosition leftPupil, EyePosition rightPupil)
   eyeState.initialized = true;
 }
 
-// 丸い目を描画する関数
-void drawRoundEyes(EyePosition leftPupil, EyePosition rightPupil)
+// 通常の目（四角い目）を描画する関数
+void drawNormalEyes(EyePosition leftPupil, EyePosition rightPupil)
 {
   // 背景を黒で塗りつぶし
   eyesSprite.fillScreen(TFT_BLACK);
@@ -198,40 +235,39 @@ void drawRoundEyes(EyePosition leftPupil, EyePosition rightPupil)
 
   if (!drawBlink)
   {
-    // 左右の目の白目部分を描画
-    eyesSprite.fillCircle(DISPLAY_CENTER_X - EYE_SPACING / 2, DISPLAY_CENTER_Y, EYE_RADIUS, TFT_WHITE);
-    eyesSprite.fillCircle(DISPLAY_CENTER_X + EYE_SPACING / 2, DISPLAY_CENTER_Y, EYE_RADIUS, TFT_WHITE);
+    // 左右の目の白目部分を描画（四角形）
+    int leftEyeX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
+    int rightEyeX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
+    int eyeY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + leftPupil.y;
 
-    // 左右の瞳を描画
-    eyesSprite.fillCircle(DISPLAY_CENTER_X - EYE_SPACING / 2 + leftPupil.x,
-                          DISPLAY_CENTER_Y + leftPupil.y,
-                          PUPIL_RADIUS, TFT_BLACK);
-
-    eyesSprite.fillCircle(DISPLAY_CENTER_X + EYE_SPACING / 2 + rightPupil.x,
-                          DISPLAY_CENTER_Y + rightPupil.y,
-                          PUPIL_RADIUS, TFT_BLACK);
+    // 角丸四角形で目を描画
+    eyesSprite.fillRoundRect(leftEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+    eyesSprite.fillRoundRect(rightEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
   }
   else
   {
-    // 瞬き中は細い楕円を描画
-    // 左目の瞬き
-    for (int i = -2; i <= 2; i++)
-    {
-      eyesSprite.drawFastHLine(
-          DISPLAY_CENTER_X - EYE_SPACING / 2 - EYE_RADIUS,
-          DISPLAY_CENTER_Y + i,
-          EYE_RADIUS * 2,
-          TFT_WHITE);
-    }
+    // 瞬き中は太い線を描画（3ピクセル）
+    int leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
+    int leftEndX = leftStartX + SQUARE_EYE_WIDTH;
+    int rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
+    int rightEndX = rightStartX + SQUARE_EYE_WIDTH;
+    int lineY = DISPLAY_CENTER_Y + leftPupil.y;
 
-    // 右目の瞬き
-    for (int i = -2; i <= 2; i++)
+    // 画面からはみ出さないように制限
+    leftStartX = constrain(leftStartX, 0, DISPLAY_WIDTH - 1);
+    leftEndX = constrain(leftEndX, 0, DISPLAY_WIDTH - 1);
+    rightStartX = constrain(rightStartX, 0, DISPLAY_WIDTH - 1);
+    rightEndX = constrain(rightEndX, 0, DISPLAY_WIDTH - 1);
+
+    // 3ピクセルの太さの線を描画（中央と上下に1ピクセルずつ）
+    for (int i = -1; i <= 1; i++)
     {
-      eyesSprite.drawFastHLine(
-          DISPLAY_CENTER_X + EYE_SPACING / 2 - EYE_RADIUS,
-          DISPLAY_CENTER_Y + i,
-          EYE_RADIUS * 2,
-          TFT_WHITE);
+      int y = lineY + i;
+      if (y >= 0 && y < DISPLAY_HEIGHT)
+      {
+        eyesSprite.drawLine(leftStartX, y, leftEndX, y, SQUARE_EYE_COLOR);
+        eyesSprite.drawLine(rightStartX, y, rightEndX, y, SQUARE_EYE_COLOR);
+      }
     }
   }
 
@@ -239,63 +275,419 @@ void drawRoundEyes(EyePosition leftPupil, EyePosition rightPupil)
   eyesSprite.pushSprite(&ExtDisplay, 0, 0);
 }
 
-// 四角い目を描画する関数
-void drawSquareEyes(EyePosition leftPupil, EyePosition rightPupil)
+// スロットマシンモードを描画する関数
+void drawSlotMachine()
 {
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - eyeState.slotStartTime;
+
   // 背景を黒で塗りつぶし
   eyesSprite.fillScreen(TFT_BLACK);
 
-  // 瞬き中かどうかを確認
-  unsigned long currentTime = millis();
-  bool drawBlink = eyeState.isBlinking && (currentTime - eyeState.blinkStartTime < BLINK_DURATION);
-
-  if (!drawBlink)
+  // スロットマシンの状態に応じて描画
+  switch (eyeState.slotState)
   {
-    // 左右の目の四角い白目部分を描画（角が丸い四角形）
-    // 画面からはみ出さないように位置を調整
-    int leftX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
-    int leftY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + leftPupil.y;
-    int rightX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
-    int rightY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + rightPupil.y;
+  case SLOT_START:
+    // 開始状態：通常の目から開始し、下に流れていく
+    if (elapsedTime < 1500) // 1.5秒かけて目を下に流す
+    {
+      // 進行度（0.0～1.0）
+      float progress = elapsedTime / 1500.0f;
 
-    // 画面からはみ出さないように調整
-    leftX = constrain(leftX, 0, DISPLAY_WIDTH - SQUARE_EYE_WIDTH);
-    leftY = constrain(leftY, 0, DISPLAY_HEIGHT - SQUARE_EYE_HEIGHT);
-    rightX = constrain(rightX, 0, DISPLAY_WIDTH - SQUARE_EYE_WIDTH);
-    rightY = constrain(rightY, 0, DISPLAY_HEIGHT - SQUARE_EYE_HEIGHT);
+      // 左右の目の白目部分を描画（四角形）- 下に流れていく
+      int leftEyeX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      int rightEyeX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      int eyeY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + (int)(DISPLAY_HEIGHT * progress); // 下に移動
 
-    eyesSprite.fillRoundRect(
-        leftX, leftY,
-        SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, 0xAFFF);
+      // 画面内にある場合のみ描画
+      if (eyeY < DISPLAY_HEIGHT)
+      {
+        // 角丸四角形で目を描画
+        eyesSprite.fillRoundRect(leftEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+        eyesSprite.fillRoundRect(rightEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+      }
 
-    eyesSprite.fillRoundRect(
-        rightX, rightY,
-        SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, 0xAFFF);
+      // 同時に数字が上から流れてくる（まだ画面外）
+      eyesSprite.setTextSize(10); // より大きなサイズに
+      eyesSprite.setTextColor(TFT_WHITE);
+
+      // 左目（10の位）
+      for (int i = 0; i < 4; i++)
+      {
+        int digit = (1 + i) % 10; // 9から始まる
+        // 画面上部から流れてくる（まだ見えない）- 目と同じ速度で移動
+        int y = -300 + (int)(progress * DISPLAY_HEIGHT) + i * 80;
+        if (y > -80 && y < DISPLAY_HEIGHT)
+        {
+          eyesSprite.setCursor(DISPLAY_CENTER_X - EYE_SPACING / 2 - 25, y);
+          eyesSprite.printf("%d", digit);
+        }
+      }
+
+      // 右目（1の位）
+      for (int i = 0; i < 4; i++)
+      {
+        int digit = (1 + i) % 10; // 9から始まる
+        // 画面上部から流れてくる（まだ見えない）- 目と同じ速度で移動
+        int y = -300 + (int)(progress * DISPLAY_HEIGHT) + i * 80;
+        if (y > -80 && y < DISPLAY_HEIGHT)
+        {
+          eyesSprite.setCursor(DISPLAY_CENTER_X + EYE_SPACING / 2 - 25, y);
+          eyesSprite.printf("%d", digit);
+        }
+      }
+    }
+    else
+    {
+      // 次の状態へ
+      eyeState.slotState = SLOT_SPINNING;
+      eyeState.slotStartTime = currentTime;
+      // スロットの回転時間は3000ms
+      eyeState.slotNumber = 3000;
+    }
+    break;
+
+  case SLOT_SPINNING:
+    // 回転中：3000msの数字を回転させる
+    if (elapsedTime < eyeState.slotNumber)
+    {
+      // ドラムリールのような表現（下から上に数字が流れる）
+      eyesSprite.setTextSize(10); // より大きなサイズに
+      eyesSprite.setTextColor(TFT_WHITE);
+
+      // 左目（10の位）のドラムリール
+      int leftDigit = (elapsedTime / 200) % 10; // 200msごとに切り替え（ゆっくり）
+      for (int i = -2; i <= 2; i++)
+      {
+        int digit = (leftDigit + i + 10) % 10; // 循環させる
+
+        // 滑らかに移動（200msのサイクルを60フレームに分割）
+        float cycleProgress = (elapsedTime % 200) / 200.0f;
+        int y = DISPLAY_CENTER_Y - 35 + i * 80 - (int)(cycleProgress * 80);
+
+        // 画面内に表示される場合のみ描画
+        if (y > -80 && y < DISPLAY_HEIGHT)
+        {
+          eyesSprite.setCursor(DISPLAY_CENTER_X - EYE_SPACING / 2 - 30, y);
+          eyesSprite.printf("%d", digit);
+        }
+      }
+
+      // 右目（1の位）のドラムリール
+      int rightDigit = (elapsedTime / 150) % 10; // 150msごとに切り替え（左より速く）
+      for (int i = -2; i <= 2; i++)
+      {
+        int digit = (rightDigit + i + 10) % 10; // 循環させる
+
+        // 滑らかに移動（150msのサイクルを60フレームに分割）
+        float cycleProgress = (elapsedTime % 150) / 150.0f;
+        int y = DISPLAY_CENTER_Y - 35 + i * 80 - (int)(cycleProgress * 80);
+
+        // 画面内に表示される場合のみ描画
+        if (y > -80 && y < DISPLAY_HEIGHT)
+        {
+          eyesSprite.setCursor(DISPLAY_CENTER_X + EYE_SPACING / 2 - 30, y);
+          eyesSprite.printf("%d", digit);
+        }
+      }
+    }
+    else
+    {
+      // 回転終了、結果を決定
+      eyeState.slotNumber = random(1, 21); // 01から20までのランダムな数字
+      eyeState.slotState = SLOT_RESULT;
+      eyeState.slotStartTime = currentTime;
+    }
+    break;
+
+  case SLOT_RESULT:
+    // 結果表示：3秒間結果を表示
+    if (elapsedTime < 3000)
+    {
+      eyesSprite.setTextSize(10); // より大きなサイズに
+      eyesSprite.setTextColor(TFT_WHITE);
+
+      // 結果の数字を取得
+      int tens = eyeState.slotNumber / 10; // 10の位
+      int ones = eyeState.slotNumber % 10; // 1の位
+
+      // 左目に10の位を表示
+      eyesSprite.setCursor(DISPLAY_CENTER_X - EYE_SPACING / 2 - 30, DISPLAY_CENTER_Y - 35);
+      eyesSprite.printf("%d", tens);
+
+      // 右目に1の位を表示
+      eyesSprite.setCursor(DISPLAY_CENTER_X + EYE_SPACING / 2 - 30, DISPLAY_CENTER_Y - 35);
+      eyesSprite.printf("%d", ones);
+    }
+    else
+    {
+      // 結果表示終了、終了状態へ
+      eyeState.slotState = SLOT_END;
+      eyeState.slotStartTime = currentTime;
+    }
+    break;
+
+  case SLOT_END:
+    // 終了状態：数字が上に消えて目が中央に表示される
+    if (elapsedTime < 1500)
+    {
+      // 進行度（0.0～1.0）
+      float progress = elapsedTime / 1500.0f;
+
+      if (progress < 0.5f)
+      { // 最初の50%の時間は数字が上に流れる
+        // 数字が上に流れていく
+        eyesSprite.setTextSize(10);
+        eyesSprite.setTextColor(TFT_WHITE);
+
+        // 左目（10の位）の数字が上に流れる
+        int tens = eyeState.slotNumber / 10;
+        int leftY = DISPLAY_CENTER_Y - 35 - (int)((progress / 0.5f) * DISPLAY_HEIGHT);
+        if (leftY > -80 && leftY < DISPLAY_HEIGHT)
+        {
+          eyesSprite.setCursor(DISPLAY_CENTER_X - EYE_SPACING / 2 - 30, leftY);
+          eyesSprite.printf("%d", tens);
+        }
+
+        // 右目（1の位）の数字が上に流れる
+        int ones = eyeState.slotNumber % 10;
+        int rightY = DISPLAY_CENTER_Y - 35 - (int)((progress / 0.5f) * DISPLAY_HEIGHT);
+        if (rightY > -80 && rightY < DISPLAY_HEIGHT)
+        {
+          eyesSprite.setCursor(DISPLAY_CENTER_X + EYE_SPACING / 2 - 30, rightY);
+          eyesSprite.printf("%d", ones);
+        }
+      }
+      // 後半で目が上から流れてきて中央で止まる
+      else if (progress >= 0.5f)
+      {                                               // 後半50%で目が現れる（オーバーラップなし）
+        float eyeProgress = (progress - 0.5f) / 0.5f; // 0.0～1.0に正規化
+
+        // 目の位置を計算（上から中央に移動し、中央で停止）
+        int eyeY;
+        if (eyeProgress < 0.8f)
+        { // 最初の80%で上から中央に移動
+          eyeY = -SQUARE_EYE_HEIGHT + (int)((DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + SQUARE_EYE_HEIGHT) * eyeProgress / 0.8f);
+        }
+        else
+        {
+          // 残りの20%は中央で停止
+          eyeY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2;
+        }
+
+        int leftEyeX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+        int rightEyeX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+
+        // 画面内にある場合のみ描画
+        if (eyeY > -SQUARE_EYE_HEIGHT && eyeY < DISPLAY_HEIGHT)
+        {
+          eyesSprite.fillRoundRect(leftEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+          eyesSprite.fillRoundRect(rightEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+        }
+      }
+    }
+    else
+    {
+      // 終了後は通常の目を中央に表示したまま待機
+      int leftEyeX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      int rightEyeX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      int eyeY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2;
+
+      eyesSprite.fillRoundRect(leftEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+      eyesSprite.fillRoundRect(rightEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+    }
+    break;
   }
-  else
+
+  // スプライトを画面に転送
+  eyesSprite.pushSprite(&ExtDisplay, 0, 0);
+}
+
+// おやすみモードを描画する関数
+void drawSleepMode()
+{
+  unsigned long currentTime = millis();
+  unsigned long elapsedTime = currentTime - eyeState.sleepStartTime;
+
+  // 背景を黒で塗りつぶし
+  eyesSprite.fillScreen(TFT_BLACK);
+
+  // 線を描画するための変数を事前に宣言
+  int leftStartX, leftEndX, rightStartX, rightEndX, lineY;
+
+  // おやすみモードの状態に応じて描画
+  switch (eyeState.sleepState)
   {
-    // 瞬き中は線を描画
-    int lineY = DISPLAY_CENTER_Y + leftPupil.y;
-    // 画面からはみ出さないように調整
-    lineY = constrain(lineY, 0, DISPLAY_HEIGHT - 1);
+  case SLEEP_START:
+    // 開始状態：通常の目から開始
+    eyeState.sleepState = SLEEP_NORMAL;
+    eyeState.sleepStartTime = currentTime;
+    eyeState.brightness = 200; // 初期の明るさ
+    break;
 
-    int leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
-    int leftEndX = DISPLAY_CENTER_X - EYE_SPACING / 2 + SQUARE_EYE_WIDTH / 2 + leftPupil.x;
-    int rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
-    int rightEndX = DISPLAY_CENTER_X + EYE_SPACING / 2 + SQUARE_EYE_WIDTH / 2 + rightPupil.x;
+  case SLEEP_NORMAL:
+    // 通常の四角い目を3秒間表示
+    // 左右の目の白目部分を描画（四角形）
+    {
+      int leftEyeX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      int rightEyeX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      int eyeY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2;
 
-    // 画面からはみ出さないように調整
+      // 角丸四角形で目を描画
+      eyesSprite.fillRoundRect(leftEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+      eyesSprite.fillRoundRect(rightEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+    }
+
+    // 3秒後に次の状態へ
+    if (elapsedTime > 3000)
+    {
+      eyeState.sleepState = SLEEP_CLOSING;
+      eyeState.sleepStartTime = currentTime;
+    }
+    break;
+
+  case SLEEP_CLOSING:
+    // 目を閉じる：瞬きと同じ表現
+    // 左右の目の線を描画
+    leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+    leftEndX = leftStartX + SQUARE_EYE_WIDTH;
+    rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+    rightEndX = rightStartX + SQUARE_EYE_WIDTH;
+    lineY = DISPLAY_CENTER_Y;
+
+    // 画面からはみ出さないように制限
     leftStartX = constrain(leftStartX, 0, DISPLAY_WIDTH - 1);
     leftEndX = constrain(leftEndX, 0, DISPLAY_WIDTH - 1);
     rightStartX = constrain(rightStartX, 0, DISPLAY_WIDTH - 1);
     rightEndX = constrain(rightEndX, 0, DISPLAY_WIDTH - 1);
 
-    eyesSprite.drawLine(leftStartX, lineY, leftEndX, lineY, SQUARE_EYE_COLOR);
-    eyesSprite.drawLine(rightStartX, lineY, rightEndX, lineY, SQUARE_EYE_COLOR);
+    // 3ピクセルの太さの線を描画（中央と上下に1ピクセルずつ）
+    for (int i = -1; i <= 1; i++)
+    {
+      int y = lineY + i;
+      if (y >= 0 && y < DISPLAY_HEIGHT)
+      {
+        eyesSprite.drawLine(leftStartX, y, leftEndX, y, SQUARE_EYE_COLOR);
+        eyesSprite.drawLine(rightStartX, y, rightEndX, y, SQUARE_EYE_COLOR);
+      }
+    }
+
+    // 0.5秒後に次の状態へ
+    if (elapsedTime > 500)
+    {
+      eyeState.sleepState = SLEEP_DIMMING;
+      eyeState.sleepStartTime = currentTime;
+    }
+    break;
+
+  case SLEEP_DIMMING:
+    // 画面を徐々に暗くする（2秒かけて）
+    if (elapsedTime < 2000)
+    {
+      // 左右の目の線を描画（そのまま表示）
+      leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      leftEndX = leftStartX + SQUARE_EYE_WIDTH;
+      rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2;
+      rightEndX = rightStartX + SQUARE_EYE_WIDTH;
+      lineY = DISPLAY_CENTER_Y;
+
+      leftStartX = constrain(leftStartX, 0, DISPLAY_WIDTH - 1);
+      leftEndX = constrain(leftEndX, 0, DISPLAY_WIDTH - 1);
+      rightStartX = constrain(rightStartX, 0, DISPLAY_WIDTH - 1);
+      rightEndX = constrain(rightEndX, 0, DISPLAY_WIDTH - 1);
+
+      // 3ピクセルの太さの線を描画（中央と上下に1ピクセルずつ）
+      for (int i = -1; i <= 1; i++)
+      {
+        int y = lineY + i;
+        if (y >= 0 && y < DISPLAY_HEIGHT)
+        {
+          eyesSprite.drawLine(leftStartX, y, leftEndX, y, SQUARE_EYE_COLOR);
+          eyesSprite.drawLine(rightStartX, y, rightEndX, y, SQUARE_EYE_COLOR);
+        }
+      }
+
+      // 明るさを徐々に下げる
+      eyeState.brightness = 200 - (int)(200.0 * elapsedTime / 2000.0);
+      ExtDisplay.setBrightness(eyeState.brightness);
+    }
+    else
+    {
+      // 完全に暗くなったら次の状態へ
+      eyeState.sleepState = SLEEP_COMPLETE;
+      eyeState.sleepStartTime = currentTime;
+      ExtDisplay.setBrightness(0); // 完全に暗く
+    }
+    break;
+
+  case SLEEP_COMPLETE:
+    // 完全に暗くなった状態（何も表示しない）
+    // 次のモード切替まで待機
+    break;
   }
 
   // スプライトを画面に転送
   eyesSprite.pushSprite(&ExtDisplay, 0, 0);
+}
+
+// モードを更新する関数
+void updateMode()
+{
+  unsigned long currentTime = millis();
+
+  // モード開始時間が設定されていない場合は初期化
+  if (eyeState.modeStartTime == 0)
+  {
+    eyeState.modeStartTime = currentTime;
+    return;
+  }
+
+  // 現在のモードに応じた持続時間を取得
+  unsigned long modeDuration;
+  switch (eyeState.mode)
+  {
+  case NORMAL_EYE:
+    modeDuration = NORMAL_EYE_DURATION;
+    break;
+  case SLOT_MACHINE:
+    modeDuration = SLOT_MACHINE_DURATION;
+    break;
+  case SLEEP_MODE:
+    modeDuration = SLEEP_MODE_DURATION;
+    break;
+  default:
+    modeDuration = NORMAL_EYE_DURATION;
+    break;
+  }
+
+  // 設定された時間ごとにモードを切り替え
+  if (currentTime - eyeState.modeStartTime >= modeDuration)
+  {
+    // 次のモードに切り替え
+    eyeState.mode = (EyeMode)((eyeState.mode + 1) % EYE_MODE_COUNT);
+    eyeState.modeStartTime = currentTime;
+
+    // モード固有の初期化
+    switch (eyeState.mode)
+    {
+    case NORMAL_EYE:
+      // 通常モードに戻る時は明るさを元に戻す
+      ExtDisplay.setBrightness(200);
+      break;
+
+    case SLOT_MACHINE:
+      // スロットマシンモードの初期化
+      eyeState.slotState = SLOT_START;
+      eyeState.slotStartTime = currentTime;
+      break;
+
+    case SLEEP_MODE:
+      // おやすみモードの初期化
+      eyeState.sleepState = SLEEP_START;
+      eyeState.sleepStartTime = currentTime;
+      break;
+    }
+  }
 }
 
 // 目の位置を更新する関数
@@ -303,111 +695,106 @@ void updateEyePosition()
 {
   unsigned long currentTime = millis();
 
-  // ボタン押下で目のモード切替
-  if (M5.BtnA.wasPressed())
+  // モードの更新
+  updateMode();
+
+  // 通常モードの場合のみ瞬きと目の動きを更新
+  if (eyeState.mode == NORMAL_EYE)
   {
-    eyeState.mode = (EyeMode)((eyeState.mode + 1) % EYE_MODE_COUNT);
-    // モード変更時に目を再描画
-    drawEyes(eyeState.leftEye, eyeState.rightEye);
-  }
-
-  // 瞬き処理（両方のモードで共通）
-  // 瞬きの開始判定
-  if (!eyeState.isBlinking && currentTime >= eyeState.nextBlinkTime)
-  {
-    eyeState.isBlinking = true;
-    eyeState.blinkStartTime = currentTime;
-    // 瞬きの持続時間は固定で0.2秒、次の瞬きは3秒後
-    eyeState.nextBlinkTime = currentTime + BLINK_DURATION + BLINK_INTERVAL;
-  }
-
-  // 瞬きの終了判定（0.2秒で確実に終了）
-  if (eyeState.isBlinking && (currentTime - eyeState.blinkStartTime >= BLINK_DURATION))
-  {
-    eyeState.isBlinking = false;
-    // 瞬きが終わったら強制的に再描画して元の目に戻す
-    drawEyes(eyeState.leftEye, eyeState.rightEye);
-  }
-
-  // 動きの開始判定
-  if (!eyeState.isMoving && currentTime >= eyeState.nextMoveTime)
-  {
-    eyeState.isMoving = true;
-    eyeState.moveStartTime = currentTime;
-
-    // 元の位置を保存
-    eyeState.originalLeft = eyeState.leftEye;
-    eyeState.originalRight = eyeState.rightEye;
-
-    // センターを見ているかどうかで目標位置を決定
-    if (eyeState.lookingAtCenter)
+    // 瞬き処理
+    // 瞬きの開始判定
+    if (!eyeState.isBlinking && currentTime >= eyeState.nextBlinkTime)
     {
-      // センターを見ている場合は、ランダムな位置に移動
-      int maxMove;
-      if (eyeState.mode == ROUND_EYE)
+      eyeState.isBlinking = true;
+      eyeState.blinkStartTime = currentTime;
+      // 瞬きの持続時間は固定で0.2秒、次の瞬きは3秒後
+      eyeState.nextBlinkTime = currentTime + BLINK_DURATION + BLINK_INTERVAL;
+    }
+
+    // 瞬きの終了判定（0.2秒で確実に終了）
+    if (eyeState.isBlinking && (currentTime - eyeState.blinkStartTime >= BLINK_DURATION))
+    {
+      eyeState.isBlinking = false;
+      // 瞬きが終わったら強制的に再描画して元の目に戻す
+      drawEyes(eyeState.leftEye, eyeState.rightEye);
+    }
+
+    // 動きの開始判定
+    if (!eyeState.isMoving && currentTime >= eyeState.nextMoveTime)
+    {
+      eyeState.isMoving = true;
+      eyeState.moveStartTime = currentTime;
+
+      // 元の位置を保存
+      eyeState.originalLeft = eyeState.leftEye;
+      eyeState.originalRight = eyeState.rightEye;
+
+      // センターを見ているかどうかで目標位置を決定
+      if (eyeState.lookingAtCenter)
       {
-        maxMove = EYE_RADIUS - PUPIL_RADIUS;
+        // センターを見ている場合は、ランダムな位置に移動
+        int maxMove = SQUARE_EYE_WIDTH / 4; // 移動範囲を制限
+
+        eyeState.targetLeft.x = random(-maxMove, maxMove + 1);
+        eyeState.targetLeft.y = random(-maxMove, maxMove + 1);
+        eyeState.targetRight.x = eyeState.targetLeft.x; // 両目を同じ方向に動かす
+        eyeState.targetRight.y = eyeState.targetLeft.y;
+
+        // 次はセンターに戻る
+        eyeState.lookingAtCenter = false;
       }
-      // else
-      // {
-      //   // 四角い目の場合は、画面からはみ出さないように移動範囲を制限
-      //   maxMove = SQUARE_EYE_WIDTH / 2; // 移動範囲を小さくする
-      // }
+      else
+      {
+        // センターを見ていない場合は、センターに戻る
+        eyeState.targetLeft.x = 0;
+        eyeState.targetLeft.y = 0;
+        eyeState.targetRight.x = 0;
+        eyeState.targetRight.y = 0;
 
-      eyeState.targetLeft.x = random(-maxMove, maxMove + 1);
-      eyeState.targetLeft.y = random(-maxMove, maxMove + 1);
-      eyeState.targetRight.x = eyeState.targetLeft.x; // 両目を同じ方向に動かす
-      eyeState.targetRight.y = eyeState.targetLeft.y;
+        // 次はランダムな位置に移動
+        eyeState.lookingAtCenter = true;
+      }
 
-      // 次はセンターに戻る
-      eyeState.lookingAtCenter = false;
+      // 次の動きの時間を設定（3秒後）
+      eyeState.nextMoveTime = currentTime + MOVE_DURATION + 3000;
     }
-    else
+
+    // 動きの処理
+    if (eyeState.isMoving)
     {
-      // センターを見ていない場合は、センターに戻る
-      eyeState.targetLeft.x = 0;
-      eyeState.targetLeft.y = 0;
-      eyeState.targetRight.x = 0;
-      eyeState.targetRight.y = 0;
+      unsigned long elapsedTime = currentTime - eyeState.moveStartTime;
 
-      // 次はランダムな位置に移動
-      eyeState.lookingAtCenter = true;
+      if (elapsedTime >= MOVE_DURATION)
+      {
+        // 動きの終了
+        eyeState.isMoving = false;
+        eyeState.leftEye = eyeState.targetLeft;
+        eyeState.rightEye = eyeState.targetRight;
+      }
+      else
+      {
+        // 動きの途中（線形補間）
+        float progress = (float)elapsedTime / MOVE_DURATION;
+
+        eyeState.leftEye.x = eyeState.originalLeft.x + (eyeState.targetLeft.x - eyeState.originalLeft.x) * progress;
+        eyeState.leftEye.y = eyeState.originalLeft.y + (eyeState.targetLeft.y - eyeState.originalLeft.y) * progress;
+
+        eyeState.rightEye.x = eyeState.originalRight.x + (eyeState.targetRight.x - eyeState.originalRight.x) * progress;
+        eyeState.rightEye.y = eyeState.originalRight.y + (eyeState.targetRight.y - eyeState.originalRight.y) * progress;
+      }
+
+      // 目を更新
+      drawEyes(eyeState.leftEye, eyeState.rightEye);
     }
-
-    // 次の動きの時間を設定（3秒後）
-    eyeState.nextMoveTime = currentTime + MOVE_DURATION + 3000;
+    else if (eyeState.isBlinking)
+    {
+      // 瞬き中は常に再描画
+      drawEyes(eyeState.leftEye, eyeState.rightEye);
+    }
   }
-
-  // 動きの処理
-  if (eyeState.isMoving)
+  else
   {
-    unsigned long elapsedTime = currentTime - eyeState.moveStartTime;
-
-    if (elapsedTime >= MOVE_DURATION)
-    {
-      // 動きの終了
-      eyeState.isMoving = false;
-      eyeState.leftEye = eyeState.targetLeft;
-      eyeState.rightEye = eyeState.targetRight;
-    }
-    else
-    {
-      // 動きの途中（線形補間）
-      float progress = (float)elapsedTime / MOVE_DURATION;
-
-      eyeState.leftEye.x = eyeState.originalLeft.x + (eyeState.targetLeft.x - eyeState.originalLeft.x) * progress;
-      eyeState.leftEye.y = eyeState.originalLeft.y + (eyeState.targetLeft.y - eyeState.originalLeft.y) * progress;
-
-      eyeState.rightEye.x = eyeState.originalRight.x + (eyeState.targetRight.x - eyeState.originalRight.x) * progress;
-      eyeState.rightEye.y = eyeState.originalRight.y + (eyeState.targetRight.y - eyeState.originalRight.y) * progress;
-    }
-
-    // 目を更新
-    drawEyes(eyeState.leftEye, eyeState.rightEye);
-  }
-  else if (eyeState.isBlinking)
-  {
-    // 瞬き中は常に再描画（両方のモードで共通）
+    // 他のモードの場合は常に再描画
     drawEyes(eyeState.leftEye, eyeState.rightEye);
   }
 }
@@ -484,10 +871,13 @@ void setup()
   eyeState.isMoving = false;
   eyeState.initialized = false;
   eyeState.nextMoveTime = millis() + random(MOVE_INTERVAL_MIN, MOVE_INTERVAL_MAX + 1);
-  eyeState.mode = SQUARE_EYE; // 初期モードは丸い目
+  eyeState.mode = NORMAL_EYE; // 初期モードは通常の目
   eyeState.isBlinking = false;
   eyeState.nextBlinkTime = millis() + BLINK_INTERVAL;
   eyeState.lookingAtCenter = true; // 初期状態はセンターを見ている
+  eyeState.modeStartTime = 0;      // モード開始時間（updateMode()で初期化される）
+  eyeState.slotState = SLOT_START;
+  eyeState.sleepState = SLEEP_START;
 
   // 初期描画
   drawInitialEyes();
