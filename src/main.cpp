@@ -10,19 +10,23 @@
 // 使用したピン
 // 3.3V -> VCC
 // G    -> GND
-constexpr int PIN_SCL = 1;      // SCLK(SPI Clock) (SCL)
-constexpr int PIN_SDA = 3;      // MOSI (SDA)
-constexpr int PIN_RST = 5;      // Reset
-constexpr int PIN_DC = 7;       // Data/Command
-constexpr int PIN_BLK = 44;     // Backlight
-constexpr int PIN_CS = 43;      // Chip Select
-constexpr int PIN_WINKER_R = 8; // ウィンカー右
-constexpr int PIN_WINKER_L = 9; // ウィンカー左
-constexpr int PIN_TOUCH1 = 10;  // タッチ1
+constexpr int PIN_SCL = 1;       // SCLK(SPI Clock) (SCL)
+constexpr int PIN_SDA = 3;       // MOSI (SDA)
+constexpr int PIN_RST = 5;       // Reset
+constexpr int PIN_DC = 7;        // Data/Command
+constexpr int PIN_BLK = 44;      // Backlight
+constexpr int PIN_CS = 43;       // Chip Select
+constexpr int PIN_WINKER_R = 9;  // ウィンカー右
+constexpr int PIN_WINKER_L = 11; // ウィンカー左
+constexpr int PIN_TOUCH1 = 12;   // タッチ1
+constexpr int PIN_TOUCH2 = 42;   // タッチ2
+constexpr int PIN_TOUCH3 = 46;   // タッチ3
+constexpr int PIN_HEAD = 14;     // ヘッドライト
+constexpr int PIN_BRAKE = 41;    // ブレーキライト
 
 // 目の設定
 constexpr int EYE_RADIUS = 50;                       // 目の半径
-constexpr int EYE_SPACING = 210;                     // 目の間隔
+constexpr int EYE_SPACING = 190;                     // 目の間隔
 constexpr int PUPIL_RADIUS = 25;                     // 瞳の半径
 constexpr int SQUARE_EYE_WIDTH = 60;                 // 四角い目の幅
 constexpr int SQUARE_EYE_HEIGHT = 120;               // 四角い目の高さ
@@ -34,7 +38,7 @@ constexpr int DISPLAY_CENTER_Y = DISPLAY_HEIGHT / 2; // ディスプレイの中
 constexpr int MOVE_INTERVAL_MIN = 2000;              // 目の動きの最小間隔（ミリ秒）
 constexpr int MOVE_INTERVAL_MAX = 5000;              // 目の動きの最大間隔（ミリ秒）
 constexpr int MOVE_DURATION = 200;                   // 目の動きの持続時間（ミリ秒）
-constexpr int BLINK_INTERVAL = 3000;                 // 瞬きの間隔（ミリ秒）
+constexpr int BLINK_INTERVAL = 3100;                 // 瞬きの間隔（ミリ秒）
 constexpr int BLINK_DURATION = 200;                  // 瞬きの持続時間（ミリ秒）
 
 // 色の設定
@@ -77,6 +81,11 @@ struct EyeState
   unsigned long blinkStartTime; // 瞬きの開始時間
   bool lookingAtCenter;         // センターを見ているかどうか
 };
+
+// ウィンカー制御用の変数
+unsigned long lastWinkerToggleTime = 0;    // 最後にウィンカーの状態を切り替えた時間
+bool winkerState = false;                  // ウィンカーの現在の状態
+constexpr int WINKER_BLINK_INTERVAL = 500; // ウィンカー点滅間隔（ミリ秒）
 
 // LovyanGFX: https://github.com/lovyan03/LovyanGFX
 // LovyanGFXのHowToUse/2_user_setting/2_user_setting.inoのコードより
@@ -141,6 +150,7 @@ void drawEyes(EyePosition leftPupil, EyePosition rightPupil);
 void updateEyePosition();
 void drawRoundEyes(EyePosition leftPupil, EyePosition rightPupil);
 void drawSquareEyes(EyePosition leftPupil, EyePosition rightPupil);
+void updateWinkers(); // ウィンカー制御用の関数
 
 // 初期描画
 void drawInitialEyes()
@@ -338,11 +348,11 @@ void updateEyePosition()
       {
         maxMove = EYE_RADIUS - PUPIL_RADIUS;
       }
-      else
-      {
-        // 四角い目の場合は、画面からはみ出さないように移動範囲を制限
-        maxMove = SQUARE_EYE_WIDTH / 4; // 移動範囲を小さくする
-      }
+      // else
+      // {
+      //   // 四角い目の場合は、画面からはみ出さないように移動範囲を制限
+      //   maxMove = SQUARE_EYE_WIDTH / 2; // 移動範囲を小さくする
+      // }
 
       eyeState.targetLeft.x = random(-maxMove, maxMove + 1);
       eyeState.targetLeft.y = random(-maxMove, maxMove + 1);
@@ -402,12 +412,69 @@ void updateEyePosition()
   }
 }
 
+// ウィンカーを制御する関数
+void updateWinkers()
+{
+  // 各タッチセンサーの状態を読み取る
+  bool touch1Detected = digitalRead(PIN_TOUCH1) == HIGH; // ウィンカー用
+  bool touch2Detected = digitalRead(PIN_TOUCH2) == HIGH; // ブレーキライト用
+  bool touch3Detected = digitalRead(PIN_TOUCH3) == HIGH; // ヘッドライト用
+
+  // 現在の時間を取得
+  unsigned long currentTime = millis();
+
+  // タッチ1（ウィンカー）の処理
+  if (touch1Detected)
+  {
+    // タッチが検出された場合、ウィンカーを点滅させる
+    if (currentTime - lastWinkerToggleTime >= WINKER_BLINK_INTERVAL)
+    {
+      // 点滅間隔が経過したら状態を切り替え
+      winkerState = !winkerState;
+      digitalWrite(PIN_WINKER_R, winkerState ? HIGH : LOW);
+      digitalWrite(PIN_WINKER_L, winkerState ? HIGH : LOW);
+      lastWinkerToggleTime = currentTime;
+    }
+  }
+  else
+  {
+    // タッチが検出されていない場合、ウィンカーをOFFにする
+    if (winkerState)
+    {
+      digitalWrite(PIN_WINKER_R, LOW);
+      digitalWrite(PIN_WINKER_L, LOW);
+      winkerState = false;
+    }
+  }
+
+  // タッチ2（ブレーキライト）の処理
+  digitalWrite(PIN_BRAKE, touch2Detected ? LOW : HIGH);
+
+  // タッチ3（ヘッドライト）の処理
+  digitalWrite(PIN_HEAD, touch3Detected ? LOW : HIGH);
+}
+
 void setup()
 {
   M5.begin();
-  Serial.begin();
+  // Serial.begin();
   ExtDisplay.init();             // 外部ディスプレイを初期化
   ExtDisplay.setBrightness(200); // バックライトの明るさ(0-255)
+
+  // ピンの初期化
+  pinMode(PIN_WINKER_R, OUTPUT);
+  pinMode(PIN_WINKER_L, OUTPUT);
+  pinMode(PIN_HEAD, OUTPUT);
+  pinMode(PIN_BRAKE, OUTPUT);
+  pinMode(PIN_TOUCH1, INPUT);
+  pinMode(PIN_TOUCH2, INPUT);
+  pinMode(PIN_TOUCH3, INPUT);
+
+  // 出力ピンの初期状態を設定
+  digitalWrite(PIN_WINKER_R, LOW);
+  digitalWrite(PIN_WINKER_L, LOW);
+  digitalWrite(PIN_HEAD, HIGH);  // 初期状態はHIGH
+  digitalWrite(PIN_BRAKE, HIGH); // 初期状態はHIGH
 
   // 目の初期状態を設定
   eyeState.leftEye = {0, 0};
@@ -430,5 +497,6 @@ void loop()
 {
   M5.update();
   updateEyePosition();
-  delay(16); // 約60FPS
+  updateWinkers(); // ウィンカー制御を更新
+  delay(16);       // 約60FPS
 }
