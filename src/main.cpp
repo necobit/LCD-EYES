@@ -21,6 +21,7 @@ constexpr int PIN_WINKER_L = 11; // ウィンカー左
 constexpr int PIN_TOUCH1 = 12;   // タッチ1
 constexpr int PIN_TOUCH2 = 42;   // タッチ2
 constexpr int PIN_TOUCH3 = 46;   // タッチ3
+constexpr int PIN_TOUCH4 = 40;   // タッチ4
 constexpr int PIN_HEAD = 14;     // ヘッドライト
 constexpr int PIN_BRAKE = 41;    // ブレーキライト
 
@@ -112,12 +113,20 @@ struct EyeState
   SleepState sleepState;        // おやすみモードの状態
   unsigned long sleepStartTime; // おやすみモード開始時間
   int brightness;               // 画面の明るさ（おやすみモード用）
+  bool touch3Pressed;           // タッチ3が押されたかどうか
+  bool touch3Released;          // タッチ3が離されたかどうか
+  unsigned long touch3Time;     // タッチ3が最後に押された時間
+  int modeSequence;             // モード切り替えのシーケンス（0: 通常, 1: スロット, 2: 通常, 3: おやすみ）
 };
 
 // ウィンカー制御用の変数
 unsigned long lastWinkerToggleTime = 0;    // 最後にウィンカーの状態を切り替えた時間
 bool winkerState = false;                  // ウィンカーの現在の状態
 constexpr int WINKER_BLINK_INTERVAL = 500; // ウィンカー点滅間隔（ミリ秒）
+
+// ヘッドライト制御用の変数
+bool headlightState = true;   // ヘッドライトの現在の状態（初期状態はON）
+bool prevTouch2State = false; // 前回のタッチ2の状態
 
 // LovyanGFX: https://github.com/lovyan03/LovyanGFX
 // LovyanGFXのHowToUse/2_user_setting/2_user_setting.inoのコードより
@@ -660,33 +669,29 @@ void updateMode()
     break;
   }
 
-  // 設定された時間ごとにモードを切り替え
-  if (currentTime - eyeState.modeStartTime >= modeDuration)
+  // スロットマシンとおやすみモードは時間経過で通常モードに戻る
+  EyeMode previousMode = eyeState.mode;
+  if ((previousMode == SLOT_MACHINE || previousMode == SLEEP_MODE) &&
+      currentTime - eyeState.modeStartTime >= modeDuration)
   {
-    // 次のモードに切り替え
-    eyeState.mode = (EyeMode)((eyeState.mode + 1) % EYE_MODE_COUNT);
+    // 通常モードに戻る
+    eyeState.mode = NORMAL_EYE;
     eyeState.modeStartTime = currentTime;
 
-    // モード固有の初期化
-    switch (eyeState.mode)
+    // モードシーケンスを適切に進める
+    if (previousMode == SLOT_MACHINE)
     {
-    case NORMAL_EYE:
-      // 通常モードに戻る時は明るさを元に戻す
-      ExtDisplay.setBrightness(200);
-      break;
-
-    case SLOT_MACHINE:
-      // スロットマシンモードの初期化
-      eyeState.slotState = SLOT_START;
-      eyeState.slotStartTime = currentTime;
-      break;
-
-    case SLEEP_MODE:
-      // おやすみモードの初期化
-      eyeState.sleepState = SLEEP_START;
-      eyeState.sleepStartTime = currentTime;
-      break;
+      // スロットマシンモードが終わったら、次の標準モード（2）に進める
+      eyeState.modeSequence = 2;
     }
+    else if (previousMode == SLEEP_MODE)
+    {
+      // おやすみモードが終わったら、最初の標準モード（0）に戻す
+      eyeState.modeSequence = 0;
+    }
+
+    // 通常モードに戻る時は明るさを元に戻す
+    ExtDisplay.setBrightness(200);
   }
 }
 
@@ -804,8 +809,9 @@ void updateWinkers()
 {
   // 各タッチセンサーの状態を読み取る
   bool touch1Detected = digitalRead(PIN_TOUCH1) == HIGH; // ウィンカー用
-  bool touch2Detected = digitalRead(PIN_TOUCH2) == HIGH; // ブレーキライト用
-  bool touch3Detected = digitalRead(PIN_TOUCH3) == HIGH; // ヘッドライト用
+  bool touch2Detected = digitalRead(PIN_TOUCH2) == HIGH; // ヘッドライト用
+  bool touch3Detected = digitalRead(PIN_TOUCH3) == HIGH; // 目のモード切り替え用
+  bool touch4Detected = digitalRead(PIN_TOUCH4) == HIGH; // ブレーキライト用
 
   // 現在の時間を取得
   unsigned long currentTime = millis();
@@ -834,11 +840,66 @@ void updateWinkers()
     }
   }
 
-  // タッチ2（ブレーキライト）の処理
-  digitalWrite(PIN_BRAKE, touch2Detected ? LOW : HIGH);
+  // タッチ2（ヘッドライト）の処理
+  // タッチ中はOFF、タッチしていない時はON
+  digitalWrite(PIN_HEAD, touch2Detected ? LOW : HIGH);
 
-  // タッチ3（ヘッドライト）の処理
-  digitalWrite(PIN_HEAD, touch3Detected ? LOW : HIGH);
+  // タッチ4（ブレーキライト）の処理
+  // タッチ中はOFF、タッチしていない時はON
+  digitalWrite(PIN_BRAKE, touch4Detected ? LOW : HIGH);
+
+  // タッチ3（目のモード切り替え）の処理
+  if (touch3Detected && !eyeState.touch3Pressed)
+  {
+    // タッチ3が押された瞬間
+    eyeState.touch3Pressed = true;
+    eyeState.touch3Time = currentTime;
+  }
+  else if (!touch3Detected && eyeState.touch3Pressed)
+  {
+    // タッチ3が離された瞬間
+    eyeState.touch3Pressed = false;
+    eyeState.touch3Released = true;
+  }
+
+  // タッチ3が離された後の処理
+  if (eyeState.touch3Released)
+  {
+    eyeState.touch3Released = false;
+
+    // モードシーケンスを進める（0: 通常, 1: スロット, 2: 通常, 3: おやすみ）
+    eyeState.modeSequence = (eyeState.modeSequence + 1) % 4;
+
+    // シーケンスに応じてモードを設定
+    switch (eyeState.modeSequence)
+    {
+    case 0: // 通常モード
+    case 2: // 通常モード（2回目）
+      eyeState.mode = NORMAL_EYE;
+      break;
+    case 1: // スロットマシンモード
+      eyeState.mode = SLOT_MACHINE;
+      eyeState.slotState = SLOT_START;
+      break;
+    case 3: // おやすみモード
+      eyeState.mode = SLEEP_MODE;
+      eyeState.sleepState = SLEEP_START;
+      break;
+    }
+
+    // モード開始時間をリセット
+    eyeState.modeStartTime = currentTime;
+
+    // モード固有の初期化
+    if (eyeState.mode == SLOT_MACHINE)
+    {
+      eyeState.slotStartTime = currentTime;
+    }
+    else if (eyeState.mode == SLEEP_MODE)
+    {
+      eyeState.sleepStartTime = currentTime;
+    }
+  }
 }
 
 void setup()
@@ -851,11 +912,12 @@ void setup()
   // ピンの初期化
   pinMode(PIN_WINKER_R, OUTPUT);
   pinMode(PIN_WINKER_L, OUTPUT);
-  pinMode(PIN_HEAD, OUTPUT);
-  pinMode(PIN_BRAKE, OUTPUT);
   pinMode(PIN_TOUCH1, INPUT);
   pinMode(PIN_TOUCH2, INPUT);
   pinMode(PIN_TOUCH3, INPUT);
+  pinMode(PIN_TOUCH4, INPUT);    // タッチ4を入力として初期化
+  pinMode(PIN_HEAD, OUTPUT);
+  pinMode(PIN_BRAKE, OUTPUT);
 
   // 出力ピンの初期状態を設定
   digitalWrite(PIN_WINKER_R, LOW);
@@ -876,8 +938,9 @@ void setup()
   eyeState.nextBlinkTime = millis() + BLINK_INTERVAL;
   eyeState.lookingAtCenter = true; // 初期状態はセンターを見ている
   eyeState.modeStartTime = 0;      // モード開始時間（updateMode()で初期化される）
-  eyeState.slotState = SLOT_START;
-  eyeState.sleepState = SLEEP_START;
+  eyeState.touch3Pressed = false;
+  eyeState.touch3Released = false;
+  eyeState.modeSequence = 0;
 
   // 初期描画
   drawInitialEyes();
