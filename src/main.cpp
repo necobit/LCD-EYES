@@ -6,6 +6,7 @@
 // ST7789のみ使うならM5GFX.hでもよい
 #include <M5Unified.h>
 #include <lgfx/v1/panel/Panel_ST7789.hpp>
+#include "image_data.h" // 数字のグラフィックデータをインクルード
 
 // 使用したピン
 // 3.3V -> VCC
@@ -244,22 +245,22 @@ void drawNormalEyes(EyePosition leftPupil, EyePosition rightPupil)
 
   if (!drawBlink)
   {
-    // 左右の目の白目部分を描画（四角形）
-    int leftEyeX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
-    int rightEyeX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
-    int eyeY = DISPLAY_CENTER_Y - SQUARE_EYE_HEIGHT / 2 + leftPupil.y;
+    // 左右の目の位置を計算
+    int leftEyeX = DISPLAY_CENTER_X - EYE_SPACING / 2 - tatamo_number_0_WIDTH / 2 + leftPupil.x;
+    int rightEyeX = DISPLAY_CENTER_X + EYE_SPACING / 2 - tatamo_number_0_WIDTH / 2 + rightPupil.x;
+    int eyeY = DISPLAY_CENTER_Y - tatamo_number_0_HEIGHT / 2 + leftPupil.y;
 
-    // 角丸四角形で目を描画
-    eyesSprite.fillRoundRect(leftEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
-    eyesSprite.fillRoundRect(rightEyeX, eyeY, SQUARE_EYE_WIDTH, SQUARE_EYE_HEIGHT, SQUARE_EYE_RADIUS, SQUARE_EYE_COLOR);
+    // 数字「0」のグラフィックで目を描画
+    eyesSprite.pushImage(leftEyeX, eyeY, tatamo_number_0_WIDTH, tatamo_number_0_HEIGHT, tatamo_number_0);
+    eyesSprite.pushImage(rightEyeX, eyeY, tatamo_number_0_WIDTH, tatamo_number_0_HEIGHT, tatamo_number_0);
   }
   else
   {
     // 瞬き中は太い線を描画（3ピクセル）
-    int leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + leftPupil.x;
-    int leftEndX = leftStartX + SQUARE_EYE_WIDTH;
-    int rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - SQUARE_EYE_WIDTH / 2 + rightPupil.x;
-    int rightEndX = rightStartX + SQUARE_EYE_WIDTH;
+    int leftStartX = DISPLAY_CENTER_X - EYE_SPACING / 2 - tatamo_number_0_WIDTH / 2 + leftPupil.x;
+    int leftEndX = leftStartX + tatamo_number_0_WIDTH;
+    int rightStartX = DISPLAY_CENTER_X + EYE_SPACING / 2 - tatamo_number_0_WIDTH / 2 + rightPupil.x;
+    int rightEndX = rightStartX + tatamo_number_0_WIDTH;
     int lineY = DISPLAY_CENTER_Y + leftPupil.y;
 
     // 画面からはみ出さないように制限
@@ -274,8 +275,8 @@ void drawNormalEyes(EyePosition leftPupil, EyePosition rightPupil)
       int y = lineY + i;
       if (y >= 0 && y < DISPLAY_HEIGHT)
       {
-        eyesSprite.drawLine(leftStartX, y, leftEndX, y, SQUARE_EYE_COLOR);
-        eyesSprite.drawLine(rightStartX, y, rightEndX, y, SQUARE_EYE_COLOR);
+        eyesSprite.drawLine(leftStartX, y, leftEndX, y, TFT_WHITE);
+        eyesSprite.drawLine(rightStartX, y, rightEndX, y, TFT_WHITE);
       }
     }
   }
@@ -867,6 +868,12 @@ void updateWinkers()
   {
     eyeState.touch3Released = false;
 
+    // おやすみモードから他のモードに切り替わる場合は明るさを元に戻す
+    if (eyeState.mode == SLEEP_MODE)
+    {
+      ExtDisplay.setBrightness(200);
+    }
+
     // モードシーケンスを進める（0: 通常, 1: スロット, 2: 通常, 3: おやすみ）
     eyeState.modeSequence = (eyeState.modeSequence + 1) % 4;
 
@@ -915,7 +922,7 @@ void setup()
   pinMode(PIN_TOUCH1, INPUT);
   pinMode(PIN_TOUCH2, INPUT);
   pinMode(PIN_TOUCH3, INPUT);
-  pinMode(PIN_TOUCH4, INPUT);    // タッチ4を入力として初期化
+  pinMode(PIN_TOUCH4, INPUT); // タッチ4を入力として初期化
   pinMode(PIN_HEAD, OUTPUT);
   pinMode(PIN_BRAKE, OUTPUT);
 
@@ -948,7 +955,32 @@ void setup()
 
 void loop()
 {
-  M5.update();
+  M5.update(); // ボタン状態を更新
+
+  // M5.BtnAが押されたらモードを切り替え
+  if (M5.BtnA.wasPressed())
+  {
+    // モードを次のモードに切り替え
+    switch (eyeState.mode)
+    {
+    case NORMAL_EYE:
+      eyeState.mode = SLOT_MACHINE;
+      break;
+    case SLOT_MACHINE:
+      eyeState.mode = SLEEP_MODE;
+      break;
+    case SLEEP_MODE:
+      eyeState.mode = NORMAL_EYE;
+      break;
+    default:
+      eyeState.mode = NORMAL_EYE;
+      break;
+    }
+    // モード開始時間を更新
+    eyeState.modeStartTime = millis();
+    Serial.printf("Mode changed to: %d\n", eyeState.mode);
+  }
+
   updateEyePosition();
   updateWinkers(); // ウィンカー制御を更新
   delay(16);       // 約60FPS
